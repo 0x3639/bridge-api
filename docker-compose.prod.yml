@@ -1,0 +1,85 @@
+version: "3.8"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: orchestrator-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+    environment:
+      - DOMAIN=${DOMAIN}
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - orchestrator-net
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: orchestrator-api
+    # NO external ports - only accessible via Caddy
+    expose:
+      - "8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://orchapi:${DB_PASSWORD}@postgres:5432/orchestrator
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - DEBUG=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - orchestrator-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: orchestrator-postgres
+    # NO external ports - internal only
+    environment:
+      - POSTGRES_USER=orchapi
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=orchestrator
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    networks:
+      - orchestrator-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orchapi -d orchestrator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: orchestrator-redis
+    # NO external ports - internal only
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - ./data/redis:/data
+    networks:
+      - orchestrator-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  orchestrator-net:
+    driver: bridge

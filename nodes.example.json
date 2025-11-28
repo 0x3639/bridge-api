@@ -1,0 +1,102 @@
+[
+  {
+    "name": "Anvil",
+    "ip": "5.161.213.40",
+    "pubkey": "Cdq18YwdIT21VcOOl3uczUl/W+RGCqi9CgFIf4CLr8g="
+  },
+  {
+    "name": "Zeno",
+    "ip": "51.222.12.113",
+    "pubkey": "HxX/6MM7jcjqHAyESWHvLVN3KLWjt6GKgRAgTY9CUqc="
+  },
+  {
+    "name": "0x3639.com",
+    "ip": "172.245.233.178",
+    "pubkey": "LbNpGLiwr9ZVAx5Rzbq/dMI7ijkSZf6nMI7Zlof8j0k="
+  },
+  {
+    "name": "12N11",
+    "ip": "161.97.167.129",
+    "pubkey": "NbxBOar2Q8pPYa2ABIap2aOCzpZO2MZuXwoLNrk3bdc="
+  },
+  {
+    "name": "NoMLabz.org",
+    "ip": "23.95.79.26",
+    "pubkey": "WzKhvWcekYTdRyAGrB4bW3fbj/Zvk1aSQNUkxVst700="
+  },
+  {
+    "name": "ZenonORG3",
+    "ip": "159.69.183.154",
+    "pubkey": "bLgOQXP9qEDm0snI/NFAO1kVzE17YHdzHxMmoPQawQU="
+  },
+  {
+    "name": "ZenonORG2",
+    "ip": "49.13.221.207",
+    "pubkey": "dpJTNz+J+t+61CqNmqBCqN3jHhdiMbXqxAd6/eNlVmo="
+  },
+  {
+    "name": "StakeServe",
+    "ip": "62.171.148.56",
+    "pubkey": "eP5mlLqa47bA5R79hh2ds/R5sOPa8nhWcDQN5w4BsEY="
+  },
+  {
+    "name": "ElderZ",
+    "ip": "51.89.155.26",
+    "pubkey": "ePSgBL7qaYNU5OYpmqmPm1ayI6BNIt0XhH0v2Yh220g="
+  },
+  {
+    "name": "MoonBaZe",
+    "ip": "51.222.12.145",
+    "pubkey": "fvGMCT2U5wAV9clv2LBpTMdSKHqcUiqI3NuglmWcZkk="
+  },
+  {
+    "name": "SultanOfStaking",
+    "ip": "34.125.216.244",
+    "pubkey": "gwXonyuXWFRnz4lryObtUZKeOiq31Nh53GLRMDlha2M="
+  },
+  {
+    "name": "Nexus",
+    "ip": "93.127.202.74",
+    "pubkey": "h1vpPABWPgtu0BE886LqRESoQ/WkokPQNO6JiyoVEsk="
+  },
+  {
+    "name": "DeeZNNutz.com",
+    "ip": "23.95.72.54",
+    "pubkey": "i0MkFAj+f4FipCHu/L4Ee3g23pkRR7eoOPe1VRH2S4Y="
+  },
+  {
+    "name": "tapwoot",
+    "ip": "51.79.147.224",
+    "pubkey": "iyyltT42L6pZgS0B7RQOSl5p26FsMSlt4V76ZI9+kcU="
+  },
+  {
+    "name": "WotGasFees",
+    "ip": "51.83.187.145",
+    "pubkey": "k0VjkxdFXz3tgEszXcAvXInYUDRMzVPcUhyaVGREriI="
+  },
+  {
+    "name": "Stark",
+    "ip": "109.104.152.53",
+    "pubkey": "nxPtMkX6BJn/NSOV9qTV/T4yXQ3b0QTPaySla38L8go="
+  },
+  {
+    "name": "Megalith",
+    "ip": "89.145.164.212",
+    "pubkey": "p+bD1q4OniBmikRX2UscBFXV/mnOz/ILAoH5Kd6hRNA="
+  },
+  {
+    "name": "Time",
+    "ip": "51.79.147.166",
+    "pubkey": "t8el+WTyESTS4Lke/+5hQX8cjnnoqjYM9uVBYJyxfUo="
+  },
+  {
+    "name": "Mariposa01",
+    "ip": "178.18.251.111",
+    "pubkey": "vm37WOlgoQc2yCgVX2IUj5xCfOgObj5Za7xi9ZRpGq8="
+  },
+  {
+    "name": "ZenonORG",
+    "ip": "188.245.58.57",
+    "pubkey": "wePlF1o2eLtxFvWgslazIhjGhlRI4lVQOduUr3v37W4="
+  }
+]
