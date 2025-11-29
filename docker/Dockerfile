@@ -26,6 +26,7 @@ COPY alembic/ alembic/
 COPY alembic.ini .
 COPY scripts/ scripts/
 COPY nodes.json .
+COPY messages.json .
 
 # Copy entrypoint script and set permissions
 COPY --chmod=755 docker/entrypoint.sh /entrypoint.sh

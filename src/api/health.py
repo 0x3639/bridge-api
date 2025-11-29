@@ -1,3 +1,8 @@
+import json
+import random
+from pathlib import Path
+from typing import Optional
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from redis.asyncio import Redis
@@ -8,12 +13,20 @@ from src.dependencies import get_db, get_redis
 
 router = APIRouter(tags=["health"])
 
+# Load messages from JSON file at startup
+_messages: list[str] = []
+_messages_file = Path(__file__).parent.parent.parent / "messages.json"
+if _messages_file.exists():
+    with open(_messages_file) as f:
+        _messages = json.load(f)
+
 
 class HealthResponse(BaseModel):
     """Basic health check response."""
 
     status: str
     service: str
+    message: Optional[str] = None
 
 
 class ReadinessResponse(BaseModel):
@@ -27,7 +40,8 @@ class ReadinessResponse(BaseModel):
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """Basic health check endpoint."""
-    return HealthResponse(status="healthy", service="orchestrator-api")
+    message = random.choice(_messages) if _messages else None
+    return HealthResponse(status="healthy", service="orchestrator-api", message=message)
 
 
 @router.get("/health/ready", response_model=ReadinessResponse)
