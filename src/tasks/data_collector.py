@@ -25,6 +25,15 @@ async def get_background_redis() -> Redis:
     return _bg_redis
 
 
+async def close_background_redis() -> None:
+    """Close the background Redis client. Call this on application shutdown."""
+    global _bg_redis
+    if _bg_redis is not None:
+        await _bg_redis.close()
+        _bg_redis = None
+        logger.info("Background Redis client closed")
+
+
 async def collect_orchestrator_data() -> None:
     """
     Collect status from all orchestrators and update the database.

@@ -18,7 +18,7 @@ from src.core.exceptions import (
     RateLimitExceededError,
 )
 from src.dependencies import close_db, close_redis, init_db, init_redis
-from src.tasks.data_collector import run_initial_collection
+from src.tasks.data_collector import close_background_redis, run_initial_collection
 from src.tasks.scheduler import setup_scheduler, shutdown_scheduler, start_scheduler
 
 # Configure logging
@@ -61,6 +61,9 @@ async def lifespan(app: FastAPI):
 
     shutdown_scheduler()
     logger.info("Background scheduler stopped")
+
+    await close_background_redis()
+    logger.info("Background Redis connection closed")
 
     await close_redis()
     logger.info("Redis connection closed")
