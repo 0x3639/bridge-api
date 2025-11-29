@@ -1,19 +1,20 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.core.exceptions import AuthenticationError, NotFoundError
+from src.core.rate_limiter import check_login_rate_limit
 from src.core.security import (
     create_session_jwt,
     generate_api_token,
     hash_password,
     verify_password,
 )
-from src.dependencies import get_current_active_user, get_db
+from src.dependencies import get_current_active_user, get_db, get_redis
 from src.models.token import ApiToken
 from src.models.user import User
 from src.schemas.auth import (
@@ -29,21 +30,50 @@ from src.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
+def get_client_ip(request: Request) -> str:
+    """Extract client IP from request, considering proxy headers."""
+    # Check X-Forwarded-For header (set by proxies like Caddy)
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        # Take the first IP (original client)
+        return forwarded_for.split(",")[0].strip()
+    # Check X-Real-IP header
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip
+    # Fall back to direct client
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/login", response_model=LoginResponse)
 async def login(
-    request: LoginRequest,
+    login_request: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
 ) -> LoginResponse:
     """
     Authenticate with username/password and receive a session JWT.
 
     The JWT can be used to create API tokens or access the API temporarily.
+    Rate limited by IP address to prevent brute force attacks.
     """
+    # Check IP-based rate limit for login attempts
+    client_ip = get_client_ip(request)
+    rate_limit_headers = await check_login_rate_limit(
+        redis=redis,
+        client_ip=client_ip,
+        limit_per_minute=settings.login_rate_limit_per_minute,
+        burst_limit=settings.login_rate_limit_burst,
+    )
+    # Store rate limit headers to be added to response
+    request.state.rate_limit_headers = rate_limit_headers
+
     # Find user by username
-    result = await db.execute(select(User).where(User.username == request.username))
+    result = await db.execute(select(User).where(User.username == login_request.username))
     user = result.scalar_one_or_none()
 
-    if user is None or not verify_password(request.password, user.password_hash):
+    if user is None or not verify_password(login_request.password, user.password_hash):
         raise AuthenticationError("Invalid username or password")
 
     if not user.is_active:

@@ -86,3 +86,35 @@ class CacheService:
     async def ttl(self, key: str) -> int:
         """Get remaining TTL for a key. Returns -2 if key doesn't exist."""
         return await self.redis.ttl(self._key(key))
+
+    async def invalidate_status_caches(self) -> None:
+        """
+        Invalidate all caches related to orchestrator status.
+
+        Call this after status data is updated to ensure consistency
+        across the status endpoint and statistics endpoints.
+        """
+        # Use pipeline for atomic deletion of related caches
+        pipe = self.redis.pipeline(transaction=True)
+
+        # Delete main status cache
+        pipe.delete(self._key("status:current"))
+
+        # Delete statistics caches that depend on status data
+        # These use patterns like stats:bridge:*, stats:uptime:*, stats:networks:*
+        # We'll delete specific known keys rather than scanning to avoid performance issues
+        for hours in [1, 6, 12, 24, 48, 168, 720]:  # Common hour values
+            for interval in [15, 30, 60]:  # Common intervals
+                pipe.delete(self._key(f"stats:bridge:{hours}:{interval}"))
+            pipe.delete(self._key(f"stats:uptime:{hours}"))
+            pipe.delete(self._key(f"stats:networks:{hours}"))
+
+        await pipe.execute()
+
+    async def invalidate_user_cache(self, user_id: str) -> None:
+        """
+        Invalidate caches related to a specific user.
+
+        Call this after user data is updated.
+        """
+        await self.delete(f"user:{user_id}")

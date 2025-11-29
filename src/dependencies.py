@@ -17,11 +17,14 @@ from src.core.security import decode_session_jwt, hash_token
 from src.models.token import ApiToken
 from src.models.user import User
 
-# Database engine and session
+# Database engine and session with configurable connection pooling
 engine = create_async_engine(
     settings.database_url,
     echo=settings.debug,
-    pool_pre_ping=True,
+    pool_size=settings.db_pool_size,  # Number of permanent connections
+    max_overflow=settings.db_max_overflow,  # Additional connections under load
+    pool_recycle=settings.db_pool_recycle,  # Recycle connections after this many seconds
+    pool_pre_ping=settings.db_pool_pre_ping,  # Verify connections are alive before use
 )
 
 async_session_maker = async_sessionmaker(

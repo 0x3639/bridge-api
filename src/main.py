@@ -18,7 +18,7 @@ from src.core.exceptions import (
     RateLimitExceededError,
 )
 from src.dependencies import close_db, close_redis, init_db, init_redis
-from src.tasks.data_collector import run_initial_collection
+from src.tasks.data_collector import close_background_redis, run_initial_collection
 from src.tasks.scheduler import setup_scheduler, shutdown_scheduler, start_scheduler
 
 # Configure logging
@@ -62,6 +62,9 @@ async def lifespan(app: FastAPI):
     shutdown_scheduler()
     logger.info("Background scheduler stopped")
 
+    await close_background_redis()
+    logger.info("Background Redis connection closed")
+
     await close_redis()
     logger.info("Redis connection closed")
 
@@ -82,10 +85,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
+# CORS middleware - configurable via CORS_ORIGINS env var
+# Accepts comma-separated list of origins or "*" for all (default)
+cors_origins = (
+    ["*"] if settings.cors_origins == "*"
+    else [origin.strip() for origin in settings.cors_origins.split(",")]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -118,6 +126,21 @@ async def add_security_headers(request: Request, call_next) -> Response:
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    # HSTS - only enable if configured (should only be used with HTTPS)
+    if settings.hsts_enabled:
+        response.headers["Strict-Transport-Security"] = (
+            f"max-age={settings.hsts_max_age}; includeSubDomains"
+        )
+
+    # Content-Security-Policy - restrictive default for API service
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "frame-ancestors 'none'"
+    )
 
     return response
 
