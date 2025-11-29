@@ -7,9 +7,11 @@ Standalone API service for orchestrator/bridge health monitoring with JWT authen
 - **JWT Authentication**: Long-lived API tokens with secure SHA-256 hashing
 - **User Management**: Admin and regular user roles with configurable rate limits
 - **Rate Limiting**: Per-user rate limiting using Redis (token bucket algorithm)
+- **Login Protection**: IP-based rate limiting to prevent brute force attacks
 - **Real-time Updates**: WebSocket support for live status broadcasts
 - **Historical Data**: PostgreSQL storage with indefinite retention
 - **Caching**: Redis caching layer for improved performance
+- **Security Headers**: HSTS, CSP, and other security headers (configurable)
 - **Docker Deployment**: Full docker-compose setup with production SSL support
 
 ## Quick Start (Local Development)
@@ -30,7 +32,10 @@ cp .env.example .env
 ### 2. Start Services
 
 ```bash
-# Start PostgreSQL, Redis, and the API
+# Using the start script (recommended)
+./scripts/start-dev.sh
+
+# Or manually
 docker compose up -d
 
 # View logs
@@ -59,6 +64,15 @@ docker compose exec api python scripts/seed_nodes.py \
 
 # Or from environment variables
 docker compose exec api python scripts/seed_nodes.py --from-env
+```
+
+### 5. Stop Services
+
+```bash
+./scripts/stop-dev.sh
+
+# Or manually
+docker compose down
 ```
 
 #### nodes.json Format
@@ -108,6 +122,10 @@ Point your domain (e.g., `api.yourdomain.com`) to your server's IP address with 
 ### 3. Start Production Services
 
 ```bash
+# Using the start script (recommended - validates env vars)
+./scripts/start-prod.sh
+
+# Or manually
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
@@ -128,10 +146,23 @@ docker compose -f docker-compose.prod.yml exec api python scripts/create_admin.p
 docker compose -f docker-compose.prod.yml exec api python scripts/seed_nodes.py --json /app/nodes.json
 ```
 
-### 6. Verify
+### 6. Stop Production Services
 
 ```bash
-curl https://api.yourdomain.com/health
+./scripts/stop-prod.sh
+
+# Or manually
+docker compose -f docker-compose.prod.yml --env-file .env.prod down
+```
+
+### 7. Force Rebuild (after code changes)
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+# For a full rebuild without cache
+docker compose -f docker-compose.prod.yml --env-file .env.prod build --no-cache
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
 ### Production Architecture
@@ -188,6 +219,16 @@ Only Caddy is exposed to the internet. Database and Redis are isolated on an int
 
 Connect to `/api/v1/ws/status?token=your_api_token` for real-time updates.
 
+**Subprotocol Authentication (recommended):** For better security, use WebSocket subprotocol authentication instead of query parameters:
+
+```javascript
+const ws = new WebSocket('ws://localhost:8001/api/v1/ws/status', [
+  'authorization.bearer.ora_your_token_here'
+]);
+```
+
+This prevents tokens from being logged in URLs by proxies and browsers.
+
 ### Health Checks
 
 | Method | Endpoint | Description |
@@ -232,6 +273,8 @@ Rate limits are configured per-user:
 | Admin | 100/s | 200 |
 | User | 10/s | 20 |
 
+**Login endpoint:** IP-based rate limiting (10 attempts/minute, burst of 5) to prevent brute force attacks.
+
 Rate limit headers are included in responses:
 - `X-RateLimit-Limit`: Requests per second
 - `X-RateLimit-Remaining`: Remaining requests
@@ -240,7 +283,13 @@ Rate limit headers are included in responses:
 ## WebSocket Usage
 
 ```javascript
+// Query parameter authentication (backwards compatible)
 const ws = new WebSocket('ws://localhost:8001/api/v1/ws/status?token=ora_xxx');
+
+// Subprotocol authentication (recommended - more secure)
+const ws = new WebSocket('ws://localhost:8001/api/v1/ws/status', [
+  'authorization.bearer.ora_xxx'
+]);
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
@@ -336,6 +385,25 @@ Environment variables (see `.env.example`):
 | `DEFAULT_RATE_LIMIT_PER_SECOND` | Default user rate limit | 10 |
 | `ADMIN_RATE_LIMIT_PER_SECOND` | Admin rate limit | 100 |
 
+### Security Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CORS_ORIGINS` | Allowed CORS origins (comma-separated or "*") | `*` |
+| `HSTS_ENABLED` | Enable HTTP Strict Transport Security | `false` |
+| `HSTS_MAX_AGE` | HSTS max-age in seconds | 31536000 |
+| `LOGIN_RATE_LIMIT_PER_MINUTE` | Login attempts per minute per IP | 10 |
+| `LOGIN_RATE_LIMIT_BURST` | Login burst limit per IP | 5 |
+
+### Database Pool Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DB_POOL_SIZE` | Number of permanent connections | 5 |
+| `DB_MAX_OVERFLOW` | Additional connections under load | 10 |
+| `DB_POOL_RECYCLE` | Recycle connections after (seconds) | 3600 |
+| `DB_POOL_PRE_PING` | Check connection health before use | `true` |
+
 ## Architecture
 
 ```
@@ -353,7 +421,14 @@ orchestrator-api/
 ├── docker/
 │   ├── Dockerfile       # API container
 │   └── caddy/           # Caddy reverse proxy config
-├── scripts/             # Admin & utility scripts
+├── scripts/
+│   ├── create_admin.py  # Create admin user
+│   ├── seed_nodes.py    # Seed orchestrator nodes
+│   ├── ws_client.py     # WebSocket test client
+│   ├── start-dev.sh     # Start development environment
+│   ├── stop-dev.sh      # Stop development environment
+│   ├── start-prod.sh    # Start production environment
+│   └── stop-prod.sh     # Stop production environment
 ├── docker-compose.yml       # Local development
 └── docker-compose.prod.yml  # Production with Caddy + SSL
 ```
@@ -362,7 +437,8 @@ orchestrator-api/
 
 | | Local Development | Production |
 |---|---|---|
-| Command | `docker compose up` | `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d` |
+| Start | `./scripts/start-dev.sh` | `./scripts/start-prod.sh` |
+| Stop | `./scripts/stop-dev.sh` | `./scripts/stop-prod.sh` |
 | API Access | `http://localhost:8001` | `https://yourdomain.com` |
 | SSL | None | Automatic (Let's Encrypt via Caddy) |
 | DB Port | Exposed (5432) | Internal only |
