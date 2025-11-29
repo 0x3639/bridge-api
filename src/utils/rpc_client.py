@@ -121,13 +121,11 @@ class RPCClient:
         start_time = time.time()
 
         try:
-            # Query identity
+            # Query identity and status
+            # Note: Removed the 1-second delay between queries as it was overly conservative
+            # and significantly slowed down data collection. The orchestrator nodes can handle
+            # back-to-back requests, and we limit concurrent queries via semaphore in collect_all_status.
             identity_data = await self._make_request(ip, port, "getIdentity")
-
-            # Wait 1 second between queries for a single node to avoid rate limiting
-            await asyncio.sleep(1.0)
-
-            # Query status
             status_data = await self._make_request(ip, port, "getStatus")
 
             response_time_ms = int((time.time() - start_time) * 1000)
