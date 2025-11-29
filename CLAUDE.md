@@ -28,12 +28,16 @@ pytest tests/test_auth.py -v
 # Run with coverage
 pytest tests/ --cov=src --cov-report=html
 
-# Start local development (with Docker dependencies)
-docker compose up -d postgres redis
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8001
+# Start/stop development environment
+./scripts/start-dev.sh
+./scripts/stop-dev.sh
 
-# Start full local stack
-docker compose up -d
+# Start/stop production environment
+./scripts/start-prod.sh
+./scripts/stop-prod.sh
+
+# Force rebuild in production (after code changes)
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 
 # Database migrations
 alembic upgrade head
@@ -81,6 +85,16 @@ Key configuration (see `.env.example` for full list):
 - `ORCHESTRATOR_POLL_INTERVAL` - Data collection interval (default: 60s)
 - `MIN_ONLINE_FOR_BRIDGE` - Minimum orchestrators for bridge online (default: 16)
 
+### Security Configuration
+- `CORS_ORIGINS` - Allowed CORS origins (comma-separated or "*")
+- `HSTS_ENABLED` - Enable HTTP Strict Transport Security (default: false)
+- `LOGIN_RATE_LIMIT_PER_MINUTE` - Login attempts per IP per minute (default: 10)
+
+### Database Pool Configuration
+- `DB_POOL_SIZE` - Number of permanent connections (default: 5)
+- `DB_MAX_OVERFLOW` - Additional connections under load (default: 10)
+- `DB_POOL_RECYCLE` - Recycle connections after seconds (default: 3600)
+
 ## Testing Notes
 
 - Tests use `testcontainers` - Docker must be running
@@ -92,6 +106,9 @@ Key configuration (see `.env.example` for full list):
 
 - **Production System:** Changes must be backwards compatible
 - **Rate Limiting:** Per-user via Redis token bucket (configurable per user)
+- **Login Rate Limiting:** IP-based rate limiting to prevent brute force attacks
 - **Caching:** Redis caching layer with configurable TTLs
-- **WebSocket:** Real-time updates broadcast to authenticated clients
+- **WebSocket:** Real-time updates broadcast to authenticated clients (supports subprotocol auth)
 - **Background Tasks:** `data_collector.py` polls orchestrator nodes every 60s
+- **Security Headers:** HSTS, CSP, X-Frame-Options (configurable)
+- **Health Endpoint:** Returns random message from `messages.json`
