@@ -14,7 +14,8 @@ services:
     environment:
       - DOMAIN=${DOMAIN}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - orchestrator-net
