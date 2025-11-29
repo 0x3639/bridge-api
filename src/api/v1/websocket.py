@@ -51,17 +51,36 @@ async def validate_ws_token(token: str, db: AsyncSession) -> User | None:
     return api_token.user
 
 
+def extract_token_from_subprotocol(websocket: WebSocket) -> str | None:
+    """
+    Extract token from WebSocket subprotocol header.
+
+    Supports format: "authorization.bearer.TOKEN_VALUE"
+    This is more secure than query params as it's not logged by proxies.
+    """
+    subprotocols = websocket.headers.get("sec-websocket-protocol", "")
+    for protocol in subprotocols.split(","):
+        protocol = protocol.strip()
+        if protocol.startswith("authorization.bearer."):
+            return protocol.replace("authorization.bearer.", "")
+    return None
+
+
 @router.websocket("/ws/status")
 async def websocket_status(
     websocket: WebSocket,
-    token: str = Query(..., description="API token for authentication"),
+    token: str | None = Query(None, description="API token for authentication (prefer subprotocol)"),
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
     """
     WebSocket endpoint for real-time orchestrator status updates.
 
-    Connect with: ws://host/api/v1/ws/status?token=your_api_token
+    Authentication options (in order of preference):
+    1. Subprotocol: Connect with Sec-WebSocket-Protocol: authorization.bearer.YOUR_TOKEN
+       This is more secure as the token is not logged in URL by proxies/browsers.
+    2. Query param: ws://host/api/v1/ws/status?token=your_api_token
+       Still supported for backwards compatibility.
 
     Messages:
     - Send "ping" to receive "pong" (heartbeat)
@@ -79,8 +98,15 @@ async def websocket_status(
         }
     }
     """
+    # Try subprotocol authentication first (more secure), fall back to query param
+    auth_token = extract_token_from_subprotocol(websocket) or token
+
+    if not auth_token:
+        await websocket.close(code=4001, reason="No authentication token provided")
+        return
+
     # Validate token
-    user = await validate_ws_token(token, db)
+    user = await validate_ws_token(auth_token, db)
     if user is None:
         await websocket.close(code=4001, reason="Invalid or expired token")
         return

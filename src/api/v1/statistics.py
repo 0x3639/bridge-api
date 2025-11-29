@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from redis.asyncio import Redis
-from sqlalchemy import func, select
+from sqlalchemy import Integer, case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -53,25 +53,43 @@ async def get_bridge_health_history(
     )
     total_count = node_count_result.scalar_one()
 
-    # Aggregate snapshots by interval
+    # Single query to aggregate all intervals - fixes N+1 query issue
+    # Previously: 1 query per interval. Now: 1 query total.
+    # Uses date_trunc to bucket timestamps into intervals
+    interval_seconds = interval_minutes * 60
+
+    # Use date_bin for PostgreSQL to bucket timestamps into intervals
+    # This groups snapshots by time interval and counts distinct online nodes
+    bucket_result = await db.execute(
+        select(
+            func.date_bin(
+                text(f"'{interval_seconds} seconds'::interval"),
+                OrchestratorSnapshot.timestamp,
+                start_time
+            ).label("bucket"),
+            func.count(func.distinct(OrchestratorSnapshot.node_id)).label("online_count"),
+        )
+        .where(
+            OrchestratorSnapshot.timestamp >= start_time,
+            OrchestratorSnapshot.timestamp < end_time,
+            OrchestratorSnapshot.is_online == True,
+        )
+        .group_by(text("bucket"))
+        .order_by(text("bucket"))
+    )
+    bucket_rows = bucket_result.all()
+
+    # Build a map of bucket timestamp -> online count
+    bucket_counts = {row.bucket: row.online_count for row in bucket_rows}
+
+    # Generate all intervals and fill in counts (0 if no data for interval)
     interval = timedelta(minutes=interval_minutes)
     data_points = []
     current_time = start_time
     online_counts = []
 
     while current_time < end_time:
-        interval_end = current_time + interval
-
-        # Count online orchestrators in this interval
-        result = await db.execute(
-            select(func.count(func.distinct(OrchestratorSnapshot.node_id))).where(
-                OrchestratorSnapshot.timestamp >= current_time,
-                OrchestratorSnapshot.timestamp < interval_end,
-                OrchestratorSnapshot.is_online == True,
-            )
-        )
-        online_count = result.scalar_one()
-
+        online_count = bucket_counts.get(current_time, 0)
         is_bridge_online = online_count >= settings.min_online_for_bridge
 
         data_points.append(
@@ -84,7 +102,7 @@ async def get_bridge_health_history(
         )
 
         online_counts.append(online_count)
-        current_time = interval_end
+        current_time += interval
 
     # Calculate statistics
     avg_online = sum(online_counts) / len(online_counts) if online_counts else 0
@@ -188,43 +206,40 @@ async def get_uptime_statistics(
     end_time = datetime.now(timezone.utc)
     start_time = end_time - timedelta(hours=hours)
 
-    # Get all active nodes
-    nodes_result = await db.execute(
-        select(OrchestratorNode).where(OrchestratorNode.is_active == True)
+    # Single aggregated query to get all node stats - fixes N+1 query issue
+    # Previously: 1 + 2N queries (2 per node). Now: 2 queries total.
+    uptime_stats_result = await db.execute(
+        select(
+            OrchestratorSnapshot.node_id,
+            OrchestratorNode.name.label("node_name"),
+            func.count().label("total_snapshots"),
+            func.sum(
+                func.cast(OrchestratorSnapshot.is_online, Integer)
+            ).label("online_snapshots"),
+        )
+        .join(OrchestratorNode, OrchestratorSnapshot.node_id == OrchestratorNode.id)
+        .where(
+            OrchestratorNode.is_active == True,
+            OrchestratorSnapshot.timestamp >= start_time,
+            OrchestratorSnapshot.timestamp <= end_time,
+        )
+        .group_by(OrchestratorSnapshot.node_id, OrchestratorNode.name)
     )
-    nodes = nodes_result.scalars().all()
+    stats_rows = uptime_stats_result.all()
 
     node_uptimes = []
     total_snapshots = 0
     total_online = 0
 
-    for node in nodes:
-        # Count total and online snapshots for this node
-        total_result = await db.execute(
-            select(func.count()).where(
-                OrchestratorSnapshot.node_id == node.id,
-                OrchestratorSnapshot.timestamp >= start_time,
-                OrchestratorSnapshot.timestamp <= end_time,
-            )
-        )
-        node_total = total_result.scalar_one()
-
-        online_result = await db.execute(
-            select(func.count()).where(
-                OrchestratorSnapshot.node_id == node.id,
-                OrchestratorSnapshot.timestamp >= start_time,
-                OrchestratorSnapshot.timestamp <= end_time,
-                OrchestratorSnapshot.is_online == True,
-            )
-        )
-        node_online = online_result.scalar_one()
-
+    for row in stats_rows:
+        node_total = row.total_snapshots
+        node_online = row.online_snapshots or 0
         uptime_pct = (node_online / node_total * 100) if node_total > 0 else 0
 
         node_uptimes.append(
             UptimeStats(
-                node_id=node.id,
-                node_name=node.name,
+                node_id=row.node_id,
+                node_name=row.node_name,
                 period_start=start_time,
                 period_end=end_time,
                 total_snapshots=node_total,

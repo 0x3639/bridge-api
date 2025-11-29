@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from redis.asyncio import Redis
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -163,19 +163,34 @@ class OrchestratorService:
         """Build current status from latest snapshots in database."""
         nodes = await self.get_all_nodes(active_only=True)
 
+        # Single query to get latest snapshot for each node - fixes N+1 query issue
+        # Previously: 1 query per node. Now: 1 query total (+ 1 for network stats).
+        # Uses a subquery to get max timestamp per node, then joins to get full snapshot
+        latest_timestamps_subq = (
+            select(
+                OrchestratorSnapshot.node_id,
+                func.max(OrchestratorSnapshot.timestamp).label("max_timestamp"),
+            )
+            .group_by(OrchestratorSnapshot.node_id)
+            .subquery()
+        )
+
+        latest_snapshots_result = await self.db.execute(
+            select(OrchestratorSnapshot)
+            .options(selectinload(OrchestratorSnapshot.network_stats))
+            .join(
+                latest_timestamps_subq,
+                (OrchestratorSnapshot.node_id == latest_timestamps_subq.c.node_id)
+                & (OrchestratorSnapshot.timestamp == latest_timestamps_subq.c.max_timestamp),
+            )
+        )
+        latest_snapshots = {s.node_id: s for s in latest_snapshots_result.scalars().all()}
+
         orchestrators = []
         online_count = 0
 
         for node in nodes:
-            # Get latest snapshot for this node
-            result = await self.db.execute(
-                select(OrchestratorSnapshot)
-                .options(selectinload(OrchestratorSnapshot.network_stats))
-                .where(OrchestratorSnapshot.node_id == node.id)
-                .order_by(OrchestratorSnapshot.timestamp.desc())
-                .limit(1)
-            )
-            snapshot = result.scalar_one_or_none()
+            snapshot = latest_snapshots.get(node.id)
 
             if snapshot:
                 network_stats = [

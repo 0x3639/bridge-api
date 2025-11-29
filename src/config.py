@@ -22,8 +22,27 @@ class Settings(BaseSettings):
     api_token_prefix: str = "ora_"
     access_token_expire_minutes: int = 15
 
+    # CORS Configuration
+    # Comma-separated list of allowed origins, or "*" for all (default)
+    cors_origins: str = "*"
+
+    # Security Headers
+    # Enable HSTS (HTTP Strict Transport Security) - set to True in production with HTTPS
+    hsts_enabled: bool = False
+    hsts_max_age: int = 31536000  # 1 year in seconds
+
+    # Login Rate Limiting (IP-based for unauthenticated endpoints)
+    login_rate_limit_per_minute: int = 10
+    login_rate_limit_burst: int = 5
+
     # Database
     database_url: str = "postgresql+asyncpg://orchapi:password@localhost:5432/orchestrator"
+
+    # Database Connection Pool
+    db_pool_size: int = 5  # Number of permanent connections
+    db_max_overflow: int = 10  # Max additional connections during load
+    db_pool_recycle: int = 3600  # Recycle connections after 1 hour (seconds)
+    db_pool_pre_ping: bool = True  # Check connection health before use
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
