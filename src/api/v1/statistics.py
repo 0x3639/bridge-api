@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from redis.asyncio import Redis
-from sqlalchemy import Integer, func, select
+from sqlalchemy import Integer, case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -53,25 +53,43 @@ async def get_bridge_health_history(
     )
     total_count = node_count_result.scalar_one()
 
-    # Aggregate snapshots by interval
+    # Single query to aggregate all intervals - fixes N+1 query issue
+    # Previously: 1 query per interval. Now: 1 query total.
+    # Uses date_trunc to bucket timestamps into intervals
+    interval_seconds = interval_minutes * 60
+
+    # Use date_bin for PostgreSQL to bucket timestamps into intervals
+    # This groups snapshots by time interval and counts distinct online nodes
+    bucket_result = await db.execute(
+        select(
+            func.date_bin(
+                text(f"'{interval_seconds} seconds'::interval"),
+                OrchestratorSnapshot.timestamp,
+                start_time
+            ).label("bucket"),
+            func.count(func.distinct(OrchestratorSnapshot.node_id)).label("online_count"),
+        )
+        .where(
+            OrchestratorSnapshot.timestamp >= start_time,
+            OrchestratorSnapshot.timestamp < end_time,
+            OrchestratorSnapshot.is_online == True,
+        )
+        .group_by(text("bucket"))
+        .order_by(text("bucket"))
+    )
+    bucket_rows = bucket_result.all()
+
+    # Build a map of bucket timestamp -> online count
+    bucket_counts = {row.bucket: row.online_count for row in bucket_rows}
+
+    # Generate all intervals and fill in counts (0 if no data for interval)
     interval = timedelta(minutes=interval_minutes)
     data_points = []
     current_time = start_time
     online_counts = []
 
     while current_time < end_time:
-        interval_end = current_time + interval
-
-        # Count online orchestrators in this interval
-        result = await db.execute(
-            select(func.count(func.distinct(OrchestratorSnapshot.node_id))).where(
-                OrchestratorSnapshot.timestamp >= current_time,
-                OrchestratorSnapshot.timestamp < interval_end,
-                OrchestratorSnapshot.is_online == True,
-            )
-        )
-        online_count = result.scalar_one()
-
+        online_count = bucket_counts.get(current_time, 0)
         is_bridge_online = online_count >= settings.min_online_for_bridge
 
         data_points.append(
@@ -84,7 +102,7 @@ async def get_bridge_health_history(
         )
 
         online_counts.append(online_count)
-        current_time = interval_end
+        current_time += interval
 
     # Calculate statistics
     avg_online = sum(online_counts) / len(online_counts) if online_counts else 0
