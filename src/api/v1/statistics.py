@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from redis.asyncio import Redis
-from sqlalchemy import func, select
+from sqlalchemy import Integer, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -188,43 +188,40 @@ async def get_uptime_statistics(
     end_time = datetime.now(timezone.utc)
     start_time = end_time - timedelta(hours=hours)
 
-    # Get all active nodes
-    nodes_result = await db.execute(
-        select(OrchestratorNode).where(OrchestratorNode.is_active == True)
+    # Single aggregated query to get all node stats - fixes N+1 query issue
+    # Previously: 1 + 2N queries (2 per node). Now: 2 queries total.
+    uptime_stats_result = await db.execute(
+        select(
+            OrchestratorSnapshot.node_id,
+            OrchestratorNode.name.label("node_name"),
+            func.count().label("total_snapshots"),
+            func.sum(
+                func.cast(OrchestratorSnapshot.is_online, Integer)
+            ).label("online_snapshots"),
+        )
+        .join(OrchestratorNode, OrchestratorSnapshot.node_id == OrchestratorNode.id)
+        .where(
+            OrchestratorNode.is_active == True,
+            OrchestratorSnapshot.timestamp >= start_time,
+            OrchestratorSnapshot.timestamp <= end_time,
+        )
+        .group_by(OrchestratorSnapshot.node_id, OrchestratorNode.name)
     )
-    nodes = nodes_result.scalars().all()
+    stats_rows = uptime_stats_result.all()
 
     node_uptimes = []
     total_snapshots = 0
     total_online = 0
 
-    for node in nodes:
-        # Count total and online snapshots for this node
-        total_result = await db.execute(
-            select(func.count()).where(
-                OrchestratorSnapshot.node_id == node.id,
-                OrchestratorSnapshot.timestamp >= start_time,
-                OrchestratorSnapshot.timestamp <= end_time,
-            )
-        )
-        node_total = total_result.scalar_one()
-
-        online_result = await db.execute(
-            select(func.count()).where(
-                OrchestratorSnapshot.node_id == node.id,
-                OrchestratorSnapshot.timestamp >= start_time,
-                OrchestratorSnapshot.timestamp <= end_time,
-                OrchestratorSnapshot.is_online == True,
-            )
-        )
-        node_online = online_result.scalar_one()
-
+    for row in stats_rows:
+        node_total = row.total_snapshots
+        node_online = row.online_snapshots or 0
         uptime_pct = (node_online / node_total * 100) if node_total > 0 else 0
 
         node_uptimes.append(
             UptimeStats(
-                node_id=node.id,
-                node_name=node.name,
+                node_id=row.node_id,
+                node_name=row.node_name,
                 period_start=start_time,
                 period_end=end_time,
                 total_snapshots=node_total,
