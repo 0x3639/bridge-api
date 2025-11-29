@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     app_name: str = "Orchestrator API"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
+    api_port: int = 8001
 
     # Security
     secret_key: str = "change-this-to-a-secure-random-string"
