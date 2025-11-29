@@ -47,6 +47,24 @@ class RPCClient:
         self.timeout = timeout or settings.orchestrator_rpc_timeout
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        # Reuse HTTP client with connection pooling for better performance
+        # Previously: new client per request. Now: shared client with pooling.
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the shared HTTP client with connection pooling."""
+        if self._client is None or self._client.is_closed:
+            # Configure connection pooling for better performance
+            limits = httpx.Limits(
+                max_keepalive_connections=20,  # Keep connections alive for reuse
+                max_connections=50,  # Max total connections
+                keepalive_expiry=30.0,  # Keep connections alive for 30 seconds
+            )
+            self._client = httpx.AsyncClient(
+                timeout=self.timeout,
+                limits=limits,
+            )
+        return self._client
 
     async def _make_request(
         self,
@@ -73,14 +91,14 @@ class RPCClient:
         url = f"http://{ip}:{port}"
         payload = {"method": method, "params": params or []}
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                url,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            response.raise_for_status()
-            return response.json()
+        client = await self._get_client()
+        response = await client.post(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def query_orchestrator(
         self,
@@ -230,5 +248,7 @@ class RPCClient:
         }
 
     async def close(self) -> None:
-        """Close the RPC client. No-op since we create new clients per request."""
-        pass
+        """Close the RPC client and release connection pool resources."""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
