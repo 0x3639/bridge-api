@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://orchapi:password@localhost:5432/orchestrator"
 
+    # Database Connection Pool
+    db_pool_size: int = 5  # Number of permanent connections
+    db_max_overflow: int = 10  # Max additional connections during load
+    db_pool_recycle: int = 3600  # Recycle connections after 1 hour (seconds)
+    db_pool_pre_ping: bool = True  # Check connection health before use
+
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
