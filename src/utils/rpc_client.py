@@ -228,3 +228,7 @@ class RPCClient:
             "raw_status": None,
             "timestamp": datetime.now(timezone.utc),
         }
+
+    async def close(self) -> None:
+        """Close the RPC client. No-op since we create new clients per request."""
+        pass

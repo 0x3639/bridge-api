@@ -17,7 +17,7 @@ Standalone API service for orchestrator/bridge health monitoring with JWT authen
 ### 1. Clone and Configure
 
 ```bash
-cd orchestrator-api
+cd bridge-api
 
 # Copy environment template
 cp .env.example .env
@@ -116,7 +116,19 @@ Caddy will automatically:
 - Redirect HTTP to HTTPS
 - Renew certificates before expiry
 
-### 4. Verify
+### 4. Create Admin User (Production)
+
+```bash
+docker compose -f docker-compose.prod.yml exec api python scripts/create_admin.py
+```
+
+### 5. Seed Orchestrator Nodes (Production)
+
+```bash
+docker compose -f docker-compose.prod.yml exec api python scripts/seed_nodes.py --json /app/nodes.json
+```
+
+### 6. Verify
 
 ```bash
 curl https://api.yourdomain.com/health
