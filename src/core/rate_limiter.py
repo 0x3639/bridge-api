@@ -36,7 +36,9 @@ class RateLimiter:
         now = time.time()
         window_start = now - 1  # 1 second sliding window
 
-        pipe = self.redis.pipeline()
+        # Use transaction=True for atomic execution of all commands
+        # This ensures the count we get reflects our cleanup and add operations
+        pipe = self.redis.pipeline(transaction=True)
 
         # Remove old entries outside the window
         pipe.zremrangebyscore(key, 0, window_start)
@@ -105,7 +107,9 @@ async def check_login_rate_limit(
     now = time.time()
     window_start = now - 60  # 60 second sliding window
 
-    pipe = redis.pipeline()
+    # Use transaction=True for atomic execution of all commands
+    # This ensures the count we get reflects our cleanup and add operations
+    pipe = redis.pipeline(transaction=True)
 
     # Remove old entries outside the window
     pipe.zremrangebyscore(key, 0, window_start)
