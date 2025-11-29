@@ -85,3 +85,53 @@ async def check_rate_limit(
         limit_per_second=rate_limit_per_second,
         burst_limit=rate_limit_burst,
     )
+
+
+async def check_login_rate_limit(
+    redis: Redis,
+    client_ip: str,
+    limit_per_minute: int,
+    burst_limit: int,
+) -> dict:
+    """
+    Check IP-based rate limit for login endpoint.
+
+    Uses a 60-second sliding window instead of 1 second for login attempts.
+    This helps prevent brute force attacks.
+
+    Returns headers dict to add to response.
+    """
+    key = f"login_ratelimit:{client_ip}"
+    now = time.time()
+    window_start = now - 60  # 60 second sliding window
+
+    pipe = redis.pipeline()
+
+    # Remove old entries outside the window
+    pipe.zremrangebyscore(key, 0, window_start)
+    # Count current entries in window
+    pipe.zcard(key)
+    # Add current request
+    pipe.zadd(key, {f"{now}:{id(now)}": now})
+    # Set expiry on key (cleanup after 2 minutes)
+    pipe.expire(key, 120)
+
+    results = await pipe.execute()
+    current_count = results[1]
+
+    # Calculate headers
+    remaining = max(0, burst_limit - current_count - 1)
+    reset_time = int(now) + 60
+
+    headers = {
+        "X-RateLimit-Limit": str(limit_per_minute),
+        "X-RateLimit-Remaining": str(remaining),
+        "X-RateLimit-Reset": str(reset_time),
+    }
+
+    # Check if exceeded
+    if current_count >= burst_limit:
+        headers["Retry-After"] = "60"
+        raise RateLimitExceededError(retry_after=60)
+
+    return headers
