@@ -119,6 +119,21 @@ async def add_security_headers(request: Request, call_next) -> Response:
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
+    # HSTS - only enable if configured (should only be used with HTTPS)
+    if settings.hsts_enabled:
+        response.headers["Strict-Transport-Security"] = (
+            f"max-age={settings.hsts_max_age}; includeSubDomains"
+        )
+
+    # Content-Security-Policy - restrictive default for API service
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "frame-ancestors 'none'"
+    )
+
     return response
 
 
