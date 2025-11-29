@@ -203,21 +203,21 @@ Include your API token in the `Authorization` header:
 
 ```bash
 curl -H "Authorization: Bearer ora_your_token_here" \
-  http://localhost:8000/api/v1/orchestrators/status
+  http://localhost:8001/api/v1/orchestrators/status
 ```
 
 ### Creating Tokens
 
 1. Login to get a session JWT:
 ```bash
-curl -X POST http://localhost:8000/api/v1/auth/login \
+curl -X POST http://localhost:8001/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "yourpassword"}'
 ```
 
 2. Use the JWT to create an API token:
 ```bash
-curl -X POST http://localhost:8000/api/v1/auth/tokens \
+curl -X POST http://localhost:8001/api/v1/auth/tokens \
   -H "Authorization: Bearer <session_jwt>" \
   -H "Content-Type: application/json" \
   -d '{"name": "My API Token"}'
@@ -240,7 +240,7 @@ Rate limit headers are included in responses:
 ## WebSocket Usage
 
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/api/v1/ws/status?token=ora_xxx');
+const ws = new WebSocket('ws://localhost:8001/api/v1/ws/status?token=ora_xxx');
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
@@ -249,6 +249,21 @@ ws.onmessage = (event) => {
 
 // Send ping to keep alive
 setInterval(() => ws.send('ping'), 30000);
+```
+
+### Python WebSocket Client
+
+A Python client script is included for testing WebSocket connections:
+
+```bash
+# Install dependencies
+pip install websockets
+
+# Connect to local development server
+python scripts/ws_client.py --token ora_your_token_here
+
+# Connect to production server
+python scripts/ws_client.py --token ora_your_token_here --url wss://api.yourdomain.com
 ```
 
 ## Development
@@ -270,8 +285,28 @@ docker compose up -d postgres redis
 alembic upgrade head
 
 # Start development server
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn src.main:app --reload --host 0.0.0.0 --port 8001
 ```
+
+### Running Tests
+
+The test suite uses `testcontainers` to automatically spin up isolated PostgreSQL and Redis containers:
+
+```bash
+# Install test dependencies
+pip install pytest pytest-asyncio testcontainers[postgres,redis]
+
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_auth.py -v
+
+# Run with coverage
+pytest tests/ --cov=src --cov-report=html
+```
+
+**Note:** Docker must be running for tests to work (testcontainers manages the database containers automatically).
 
 ### Database Migrations
 
@@ -295,6 +330,7 @@ Environment variables (see `.env.example`):
 | `SECRET_KEY` | JWT signing key | (required) |
 | `DATABASE_URL` | PostgreSQL connection | (required) |
 | `REDIS_URL` | Redis connection | (required) |
+| `API_PORT` | Port for the API server | 8001 |
 | `ORCHESTRATOR_POLL_INTERVAL` | Data collection interval (seconds) | 60 |
 | `MIN_ONLINE_FOR_BRIDGE` | Min orchestrators for bridge online | 16 |
 | `DEFAULT_RATE_LIMIT_PER_SECOND` | Default user rate limit | 10 |
@@ -312,11 +348,12 @@ orchestrator-api/
 │   ├── services/        # Business logic
 │   ├── tasks/           # Background jobs
 │   └── utils/           # RPC client, helpers
+├── tests/               # Test suite (pytest + testcontainers)
 ├── alembic/             # Database migrations
 ├── docker/
 │   ├── Dockerfile       # API container
 │   └── caddy/           # Caddy reverse proxy config
-├── scripts/             # Admin scripts
+├── scripts/             # Admin & utility scripts
 ├── docker-compose.yml       # Local development
 └── docker-compose.prod.yml  # Production with Caddy + SSL
 ```
@@ -326,7 +363,7 @@ orchestrator-api/
 | | Local Development | Production |
 |---|---|---|
 | Command | `docker compose up` | `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d` |
-| API Access | `http://localhost:8000` | `https://yourdomain.com` |
+| API Access | `http://localhost:8001` | `https://yourdomain.com` |
 | SSL | None | Automatic (Let's Encrypt via Caddy) |
 | DB Port | Exposed (5432) | Internal only |
 | Redis Port | Exposed (6379) | Internal only |
