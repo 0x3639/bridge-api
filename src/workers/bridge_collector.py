@@ -294,7 +294,12 @@ class BridgeCollector:
             logger.info(f"Updated {updated_count} pending wrap requests")
 
     async def _sync_new_unwrap_requests(self, session: AsyncSession) -> None:
-        """Sync only new unwrap requests since last sync."""
+        """Sync new unwrap requests and update pending ones.
+
+        This method:
+        1. Fetches new unwrap requests (higher momentum height than DB)
+        2. Updates status for pending requests (not redeemed and not revoked)
+        """
         # Get latest momentum height from DB
         latest_height = await self._get_latest_unwrap_momentum_height(session)
 
@@ -338,6 +343,79 @@ class BridgeCollector:
         if new_count > 0:
             logger.info(f"Synced {new_count} new unwrap requests")
 
+        # Update pending unwrap requests (not redeemed and not revoked)
+        await self._update_pending_unwrap_requests(session)
+
+    async def _update_pending_unwrap_requests(self, session: AsyncSession) -> None:
+        """Update status for pending unwrap requests.
+
+        Fetches the latest data from RPC for all unwrap requests that haven't
+        been redeemed or revoked yet. This updates:
+        - redeemable_in: countdown until redeemable
+        - redeemed: true when user redeems
+        - revoked: true if revoked
+        """
+        # Get all pending unwrap identifiers from DB (tx_hash + log_index)
+        result = await session.execute(
+            select(
+                UnwrapTokenRequest.transaction_hash,
+                UnwrapTokenRequest.log_index
+            ).where(
+                UnwrapTokenRequest.redeemed == False,  # noqa: E712
+                UnwrapTokenRequest.revoked == False,   # noqa: E712
+            )
+        )
+        pending_keys = {(row[0], row[1]) for row in result.fetchall()}
+
+        if not pending_keys:
+            return
+
+        logger.info(f"Updating {len(pending_keys)} pending unwrap requests")
+
+        # Fetch pages from RPC until we've checked all pending requests
+        page = 0
+        page_size = settings.bridge_batch_size
+        updated_count = 0
+        checked_keys = set()
+
+        while checked_keys < pending_keys:
+            try:
+                result = await self.rpc_client.get_all_unwrap_requests(
+                    page_index=page, page_size=page_size
+                )
+                records = result.get("list", [])
+
+                if not records:
+                    break
+
+                # Filter to only records we need to update
+                pending_records = [
+                    r for r in records
+                    if (r.get("transactionHash"), r.get("logIndex")) in pending_keys
+                ]
+
+                if pending_records:
+                    await self._upsert_unwrap_requests(session, pending_records)
+                    updated_count += len(pending_records)
+                    checked_keys.update(
+                        (r.get("transactionHash"), r.get("logIndex"))
+                        for r in pending_records
+                    )
+
+                page += 1
+
+                # Safety limit - don't paginate forever
+                if page > 100:
+                    logger.warning("Hit page limit while updating pending unwrap requests")
+                    break
+
+            except Exception as e:
+                logger.error(f"Error updating pending unwrap requests: {e}")
+                break
+
+        if updated_count > 0:
+            logger.info(f"Updated {updated_count} pending unwrap requests")
+
     async def _upsert_wrap_requests(
         self, session: AsyncSession, records: List[Dict[str, Any]]
     ) -> None:
@@ -379,7 +457,13 @@ class BridgeCollector:
     async def _upsert_unwrap_requests(
         self, session: AsyncSession, records: List[Dict[str, Any]]
     ) -> None:
-        """Insert unwrap requests, ignoring duplicates."""
+        """Insert or update unwrap requests.
+
+        Uses upsert to update dynamic fields for existing records:
+        - redeemed: changes to true when user redeems
+        - revoked: changes to true if revoked
+        - redeemable_in: decreases over time until 0
+        """
         if not records:
             return
 
@@ -405,8 +489,13 @@ class BridgeCollector:
             })
 
         stmt = insert(UnwrapTokenRequest).values(values)
-        stmt = stmt.on_conflict_do_nothing(
-            constraint="uq_unwrap_tx_log"
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_unwrap_tx_log",
+            set_={
+                "redeemed": stmt.excluded.redeemed,
+                "revoked": stmt.excluded.revoked,
+                "redeemable_in": stmt.excluded.redeemable_in,
+            }
         )
         await session.execute(stmt)
         await session.commit()
