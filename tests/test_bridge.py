@@ -266,6 +266,40 @@ class TestBridgeWraps:
         assert data["items"][0]["token_symbol"] == "QSR"
 
     @pytest.mark.asyncio
+    async def test_get_wraps_filter_by_confirmations(
+        self,
+        client: AsyncClient,
+        test_api_token,
+        test_redis,
+        sample_wrap_requests,
+    ):
+        """Test filtering wrap requests by confirmations_to_finality."""
+        token, _ = test_api_token
+        await test_redis.set(BRIDGE_SYNC_COMPLETE_KEY, "1")
+
+        # Both sample requests have confirmations_to_finality=0
+        response = await client.get(
+            "/api/v1/bridge/wraps?confirmations_to_finality=0",
+            headers=auth_headers(token),
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 2
+        for item in data["items"]:
+            assert item["confirmations_to_finality"] == 0
+
+        # No requests with confirmations_to_finality=5
+        response = await client.get(
+            "/api/v1/bridge/wraps?confirmations_to_finality=5",
+            headers=auth_headers(token),
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 0
+
+    @pytest.mark.asyncio
     async def test_get_wraps_unauthorized(self, client: AsyncClient):
         """Test wraps endpoint without auth."""
         response = await client.get("/api/v1/bridge/wraps")

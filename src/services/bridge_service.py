@@ -36,6 +36,7 @@ class BridgeService:
         token_standard: Optional[str] = None,
         token_symbol: Optional[str] = None,
         to_address: Optional[str] = None,
+        confirmations_to_finality: Optional[int] = None,
     ) -> WrapTokenListResponse:
         """
         Get paginated wrap token requests with optional filters.
@@ -47,6 +48,7 @@ class BridgeService:
             token_standard: Filter by token standard (e.g., zts1znn...)
             token_symbol: Filter by token symbol (e.g., ZNN, QSR)
             to_address: Filter by destination Ethereum address
+            confirmations_to_finality: Filter by confirmations to finality (0 = finalized)
 
         Returns:
             Paginated list of wrap token requests
@@ -62,6 +64,8 @@ class BridgeService:
             query = query.where(WrapTokenRequest.token_symbol == token_symbol)
         if to_address is not None:
             query = query.where(WrapTokenRequest.to_address == to_address)
+        if confirmations_to_finality is not None:
+            query = query.where(WrapTokenRequest.confirmations_to_finality == confirmations_to_finality)
 
         # Get total count
         count_query = select(func.count()).select_from(query.subquery())

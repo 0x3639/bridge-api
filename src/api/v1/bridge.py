@@ -32,6 +32,7 @@ async def get_wrap_requests(
     token_standard: Optional[str] = Query(None, description="Filter by token standard (e.g., zts1znn...)"),
     token_symbol: Optional[str] = Query(None, description="Filter by token symbol (e.g., ZNN, QSR)"),
     to_address: Optional[str] = Query(None, description="Filter by destination Ethereum address"),
+    confirmations_to_finality: Optional[int] = Query(None, ge=0, description="Filter by confirmations to finality (0 = finalized)"),
     _user: User = Depends(rate_limit_user),
     _sync_check: None = Depends(require_bridge_sync_complete),
     db: AsyncSession = Depends(get_db),
@@ -51,6 +52,7 @@ async def get_wrap_requests(
         token_standard=token_standard,
         token_symbol=token_symbol,
         to_address=to_address,
+        confirmations_to_finality=confirmations_to_finality,
     )
 
 
