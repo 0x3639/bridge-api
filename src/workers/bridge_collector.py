@@ -181,7 +181,12 @@ class BridgeCollector:
         logger.info(f"Full sync of unwrap requests complete: {synced} records")
 
     async def _sync_new_wrap_requests(self, session: AsyncSession) -> None:
-        """Sync only new wrap requests since last sync."""
+        """Sync new wrap requests and update pending ones.
+
+        This method:
+        1. Fetches new wrap requests (higher momentum height than DB)
+        2. Updates confirmations_to_finality for pending requests (> 0)
+        """
         # Get latest momentum height from DB
         latest_height = await self._get_latest_wrap_momentum_height(session)
 
@@ -224,6 +229,69 @@ class BridgeCollector:
 
         if new_count > 0:
             logger.info(f"Synced {new_count} new wrap requests")
+
+        # Update pending wrap requests (confirmations_to_finality > 0)
+        await self._update_pending_wrap_requests(session)
+
+    async def _update_pending_wrap_requests(self, session: AsyncSession) -> None:
+        """Update confirmations_to_finality for pending wrap requests.
+
+        Fetches the latest data from RPC for all wrap requests that haven't
+        been finalized yet (confirmations_to_finality > 0).
+        """
+        # Get all pending request IDs from DB
+        result = await session.execute(
+            select(WrapTokenRequest.request_id).where(
+                WrapTokenRequest.confirmations_to_finality > 0
+            )
+        )
+        pending_ids = {row[0] for row in result.fetchall()}
+
+        if not pending_ids:
+            return
+
+        logger.info(f"Updating {len(pending_ids)} pending wrap requests")
+
+        # Fetch pages from RPC until we've checked all pending requests
+        page = 0
+        page_size = settings.bridge_batch_size
+        updated_count = 0
+        checked_ids = set()
+
+        while checked_ids < pending_ids:
+            try:
+                result = await self.rpc_client.get_all_wrap_requests(
+                    page_index=page, page_size=page_size
+                )
+                records = result.get("list", [])
+
+                if not records:
+                    break
+
+                # Filter to only records we need to update
+                pending_records = [
+                    r for r in records
+                    if r.get("id") in pending_ids
+                ]
+
+                if pending_records:
+                    await self._upsert_wrap_requests(session, pending_records)
+                    updated_count += len(pending_records)
+                    checked_ids.update(r.get("id") for r in pending_records)
+
+                page += 1
+
+                # Safety limit - don't paginate forever
+                if page > 100:
+                    logger.warning("Hit page limit while updating pending wrap requests")
+                    break
+
+            except Exception as e:
+                logger.error(f"Error updating pending wrap requests: {e}")
+                break
+
+        if updated_count > 0:
+            logger.info(f"Updated {updated_count} pending wrap requests")
 
     async def _sync_new_unwrap_requests(self, session: AsyncSession) -> None:
         """Sync only new unwrap requests since last sync."""
@@ -273,7 +341,11 @@ class BridgeCollector:
     async def _upsert_wrap_requests(
         self, session: AsyncSession, records: List[Dict[str, Any]]
     ) -> None:
-        """Insert wrap requests, ignoring duplicates."""
+        """Insert or update wrap requests.
+
+        Uses upsert to update confirmations_to_finality for existing records,
+        as this value changes over time until the transaction is finalized.
+        """
         if not records:
             return
 
@@ -297,7 +369,10 @@ class BridgeCollector:
             })
 
         stmt = insert(WrapTokenRequest).values(values)
-        stmt = stmt.on_conflict_do_nothing(index_elements=["request_id"])
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["request_id"],
+            set_={"confirmations_to_finality": stmt.excluded.confirmations_to_finality}
+        )
         await session.execute(stmt)
         await session.commit()
 
