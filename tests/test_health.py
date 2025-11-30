@@ -41,5 +41,33 @@ class TestRoot:
         data = response.json()
         assert "name" in data
         assert "version" in data
-        assert "docs" in data
         assert "health" in data
+        # docs key is present when DOCS_ENABLED=true (default)
+        assert "docs" in data
+
+
+class TestDocs:
+    """Tests for API documentation endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_docs_endpoint_enabled(self, client: AsyncClient):
+        """Test /docs is accessible when DOCS_ENABLED=true (default)."""
+        response = await client.get("/docs")
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", "")
+
+    @pytest.mark.asyncio
+    async def test_redoc_endpoint_enabled(self, client: AsyncClient):
+        """Test /redoc is accessible when DOCS_ENABLED=true (default)."""
+        response = await client.get("/redoc")
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", "")
+
+    @pytest.mark.asyncio
+    async def test_openapi_endpoint_enabled(self, client: AsyncClient):
+        """Test OpenAPI JSON is accessible when DOCS_ENABLED=true (default)."""
+        response = await client.get("/api/v1/openapi.json")
+        assert response.status_code == 200
+        data = response.json()
+        assert "openapi" in data
+        assert "paths" in data

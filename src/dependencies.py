@@ -201,3 +201,27 @@ async def rate_limit_user(
     request.state.rate_limit_headers = headers
 
     return current_user
+
+
+# Redis key for bridge sync status
+BRIDGE_SYNC_COMPLETE_KEY = "bridge:sync_complete"
+
+
+async def require_bridge_sync_complete(
+    redis: Redis = Depends(get_redis),
+) -> None:
+    """
+    Dependency that checks if bridge data sync is complete.
+
+    Raises HTTPException 503 if sync is not yet complete.
+    This is used by bridge endpoints to prevent serving incomplete data.
+    """
+    from fastapi import HTTPException
+
+    sync_complete = await redis.get(BRIDGE_SYNC_COMPLETE_KEY)
+    if not sync_complete:
+        raise HTTPException(
+            status_code=503,
+            detail="Bridge data sync in progress. Please try again later.",
+            headers={"Retry-After": "60"},
+        )

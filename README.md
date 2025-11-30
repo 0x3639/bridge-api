@@ -171,9 +171,13 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 Internet → Caddy (ports 80/443, auto SSL) → API (internal only)
                                           → PostgreSQL (internal only)
                                           → Redis (internal only)
+
+Bridge Worker (internal) → RPC Node (external)
+                        → PostgreSQL (internal)
+                        → Redis (internal)
 ```
 
-Only Caddy is exposed to the internet. Database and Redis are isolated on an internal Docker network.
+Only Caddy is exposed to the internet. Database and Redis are isolated on an internal Docker network. The bridge worker runs as a separate container that syncs wrap/unwrap data from the configured RPC node.
 
 ## API Endpoints
 
@@ -214,6 +218,18 @@ Only Caddy is exposed to the internet. Database and Redis are isolated on an int
 | GET | `/api/v1/statistics/bridge` | Bridge health over time |
 | GET | `/api/v1/statistics/networks` | Network wrap/unwrap stats |
 | GET | `/api/v1/statistics/uptime` | Uptime percentages |
+
+### Bridge Data
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/bridge/sync-status` | Check if bridge data sync is complete |
+| GET | `/api/v1/bridge/wraps` | List wrap token requests (with filters) |
+| GET | `/api/v1/bridge/unwraps` | List unwrap token requests (with filters) |
+
+**Query parameters for `/wraps`:** `page`, `page_size`, `chain_id`, `token_standard`, `token_symbol`, `to_address`
+
+**Query parameters for `/unwraps`:** `page`, `page_size`, `chain_id`, `token_standard`, `token_symbol`, `to_address`, `redeemed`, `revoked`
 
 ### WebSocket
 
@@ -370,6 +386,70 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
+## Upgrading / Migrations
+
+When deploying updates that include database schema changes:
+
+### Development
+
+```bash
+# Pull latest code
+git pull
+
+# Rebuild and restart containers
+docker compose down
+docker compose up -d --build
+
+# Migrations run automatically on container startup via entrypoint.sh
+```
+
+### Production
+
+```bash
+# 1. Pull latest code
+git pull
+
+# 2. Stop services (optional - for zero-downtime, skip this step)
+docker compose -f docker-compose.prod.yml --env-file .env.prod down
+
+# 3. Rebuild and start with migrations
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+# 4. Verify migration succeeded
+docker compose -f docker-compose.prod.yml logs api | grep -i alembic
+
+# 5. Check bridge worker is syncing (for bridge feature)
+docker compose -f docker-compose.prod.yml logs bridge-worker
+```
+
+### Migration Safety
+
+- **Additive migrations** (new tables, new columns): Safe, no data loss
+- **Destructive migrations** (drop tables, alter columns): Review carefully before applying
+- **Rollback**: Use `alembic downgrade -1` inside the container if needed:
+  ```bash
+  docker compose -f docker-compose.prod.yml exec api alembic downgrade -1
+  ```
+
+### Bridge Feature Migration (002_add_bridge_tables)
+
+This migration adds two new tables for wrap/unwrap token requests. It is **additive only** - no existing data is modified:
+
+```bash
+# The migration creates:
+# - wrap_token_requests table
+# - unwrap_token_requests table
+# - Indexes for efficient querying
+
+# After migration, the bridge-worker container will:
+# 1. Perform initial sync (~3000+ records, takes ~5 seconds)
+# 2. Poll for new data every 60 seconds
+# 3. Set sync_complete flag in Redis when ready
+
+# Check sync status via API:
+curl -H "Authorization: Bearer ora_xxx" https://yourdomain.com/api/v1/bridge/sync-status
+```
+
 ## Configuration
 
 Environment variables (see `.env.example`):
@@ -384,6 +464,16 @@ Environment variables (see `.env.example`):
 | `MIN_ONLINE_FOR_BRIDGE` | Min orchestrators for bridge online | 16 |
 | `DEFAULT_RATE_LIMIT_PER_SECOND` | Default user rate limit | 10 |
 | `ADMIN_RATE_LIMIT_PER_SECOND` | Admin rate limit | 100 |
+| `DOCS_ENABLED` | Enable Swagger UI and ReDoc | `true` |
+
+### Bridge Worker Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `BRIDGE_RPC_URL` | RPC endpoint for bridge data | `https://my.hc1node.com:35997` |
+| `BRIDGE_POLL_INTERVAL` | Sync interval in seconds | 60 |
+| `BRIDGE_BATCH_SIZE` | Records per RPC request | 100 |
+| `BRIDGE_RPC_TIMEOUT` | RPC request timeout (seconds) | 30 |
 
 ### Security Configuration
 

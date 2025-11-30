@@ -75,6 +75,9 @@ scripts/              # Admin utilities (create_admin.py, seed_nodes.py, ws_clie
 - `GET /api/v1/orchestrators/status` - Current status of all nodes
 - `GET /api/v1/statistics/uptime` - Uptime percentages
 - `WS /api/v1/ws/status?token=xxx` - Real-time status WebSocket
+- `GET /api/v1/bridge/wraps` - Get wrap token requests (with filters)
+- `GET /api/v1/bridge/unwraps` - Get unwrap token requests (with filters)
+- `GET /api/v1/bridge/sync-status` - Check bridge data sync status
 
 ## Environment Variables
 
@@ -84,6 +87,9 @@ Key configuration (see `.env.example` for full list):
 - `REDIS_URL` - Redis connection string
 - `ORCHESTRATOR_POLL_INTERVAL` - Data collection interval (default: 60s)
 - `MIN_ONLINE_FOR_BRIDGE` - Minimum orchestrators for bridge online (default: 16)
+- `BRIDGE_RPC_URL` - RPC endpoint for bridge data (default: https://my.hc1node.com:35997)
+- `BRIDGE_POLL_INTERVAL` - Bridge worker poll interval (default: 60s)
+- `DOCS_ENABLED` - Enable/disable Swagger UI and ReDoc (default: true)
 
 ### Security Configuration
 - `CORS_ORIGINS` - Allowed CORS origins (comma-separated or "*")
@@ -99,8 +105,16 @@ Key configuration (see `.env.example` for full list):
 
 - Tests use `testcontainers` - Docker must be running
 - Test fixtures in `tests/conftest.py` create isolated DB/Redis per test session
-- 49 tests covering auth, users, orchestrators, health, and security
+- 61 tests covering auth, users, orchestrators, health, security, and bridge endpoints
 - Tests use the same port (8001) as development
+
+## Local Development Credentials
+
+A `.dev-credentials` file exists (gitignored) containing:
+- Admin username/email/password for local testing
+- API token for testing authenticated endpoints
+
+This file is NOT committed to the repository. Create your own or ask a team member.
 
 ## Important Considerations
 
@@ -110,5 +124,6 @@ Key configuration (see `.env.example` for full list):
 - **Caching:** Redis caching layer with configurable TTLs
 - **WebSocket:** Real-time updates broadcast to authenticated clients (supports subprotocol auth)
 - **Background Tasks:** `data_collector.py` polls orchestrator nodes every 60s
+- **Bridge Worker:** Separate process (`bridge_worker.py`) syncs wrap/unwrap data from RPC every 60s
 - **Security Headers:** HSTS, CSP, X-Frame-Options (configurable)
 - **Health Endpoint:** Returns random message from `messages.json`
