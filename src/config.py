@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     api_port: int = 8001
 
+    # API Documentation
+    docs_enabled: bool = True  # Enable/disable Swagger UI and ReDoc
+
     # Security
     secret_key: str = "change-this-to-a-secure-random-string"
     api_token_prefix: str = "ora_"
@@ -63,6 +66,16 @@ class Settings(BaseSettings):
     cache_status_ttl: int = 10
     cache_user_ttl: int = 300
     cache_stats_ttl: int = 60
+
+    # Bridge RPC settings
+    bridge_rpc_url: str = "https://my.hc1node.com:35997"
+    bridge_poll_interval: int = 60  # Seconds between data collection
+    bridge_rpc_timeout: int = 30  # Longer timeout for paginated requests
+    bridge_batch_size: int = 100  # Records per RPC request during sync
+
+    # Bridge Worker Database Pool (separate from main API pool)
+    bridge_db_pool_size: int = 2
+    bridge_db_max_overflow: int = 1
 
 
 @lru_cache

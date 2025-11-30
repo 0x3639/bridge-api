@@ -68,3 +68,6 @@ nodes.json
 
 # Roadmap (local tracking)
 ROADMAP.md
+
+# Local development credentials
+.dev-credentials

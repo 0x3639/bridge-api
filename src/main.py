@@ -79,9 +79,9 @@ app = FastAPI(
     title=settings.app_name,
     description="API for orchestrator/bridge health monitoring",
     version="1.0.0",
-    openapi_url=f"{settings.api_v1_prefix}/openapi.json",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    openapi_url=f"{settings.api_v1_prefix}/openapi.json" if settings.docs_enabled else None,
+    docs_url="/docs" if settings.docs_enabled else None,
+    redoc_url="/redoc" if settings.docs_enabled else None,
     lifespan=lifespan,
 )
 
@@ -133,12 +133,13 @@ async def add_security_headers(request: Request, call_next) -> Response:
             f"max-age={settings.hsts_max_age}; includeSubDomains"
         )
 
-    # Content-Security-Policy - restrictive default for API service
+    # Content-Security-Policy
+    # Includes cdn.jsdelivr.net for Swagger UI assets
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "img-src 'self' data: https://fastapi.tiangolo.com; "
         "frame-ancestors 'none'"
     )
 
@@ -189,10 +190,12 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 @app.get("/", include_in_schema=False)
 async def root():
     """Root endpoint with API information."""
-    return {
+    response = {
         "name": settings.app_name,
         "version": "1.0.0",
-        "docs": "/docs",
         "health": "/health",
         "api": settings.api_v1_prefix,
     }
+    if settings.docs_enabled:
+        response["docs"] = "/docs"
+    return response
